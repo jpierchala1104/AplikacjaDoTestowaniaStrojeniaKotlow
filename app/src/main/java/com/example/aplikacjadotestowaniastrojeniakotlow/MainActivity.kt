@@ -9,7 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -29,6 +32,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     private var mBTDevice: BluetoothDevice? = null
     private val diameter = 20
     private val tuningInfo = "tuningInfo"
+    private var handlerThread = HandlerThread("background-thread")
 
     private var counter = 50
     private var tuneDirection = 0
@@ -36,7 +40,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
     private val tt: TimerTask = object : TimerTask() {
         override fun run() {
             counter += tuneDirection
-            tuningValue.setProgress(counter)
+            tuningValue.progress = counter
             if (counter === 100 || counter === 0) tuneDirection = 0
         }
     }
@@ -47,7 +51,7 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
             if (receivedMessage != null)
             {
                 var sentMessage = ""
-                when {
+                when  {
                     receivedMessage == "getDiameter" -> {
                         sentMessage = diameter.toString()
                         mBluetoothConnection.write(diameter.toString().toByteArray())
@@ -60,13 +64,18 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                     receivedMessage!!.contains("tune") -> {
                         val mes = receivedMessage!!.drop(5)
                         try {
-                            counter = mes.toInt()
+                            if (mes.toInt() in 0..100){
+                                tune(mes.toInt())
+                            } else {
+                                sentMessage = "done"
+                                mBluetoothConnection.write(sentMessage.toByteArray())
+                            }
                         }catch (ex: ParseException){
                             Log.e("tuning", ex.toString())
                         }
                         tuning(mes)
                     }
-                    receivedMessage == "a" -> {
+                    receivedMessage == "l" -> {
                         sentMessage = "up $tuningInfo"
                         tuneDirection = 1
                     }
@@ -74,10 +83,17 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
                         sentMessage = "stop $tuningInfo"
                         tuneDirection = 0
                     }
-                    receivedMessage == "x" -> {
+                    receivedMessage == "y" -> {
                         sentMessage = "down $tuningInfo"
                         tuneDirection = -1
                     }
+                    receivedMessage == "stopTune" -> {
+                        handlerThread.quit()
+                    }
+//                    "tune" -> {
+//                        sentMessage = "$counter"
+//                        mBluetoothConnection.write(sentMessage.toByteArray())
+//                    }
                 }
                 display(receivedMessage!! + " " + sentMessage)
             }
@@ -138,6 +154,42 @@ class MainActivity : AppCompatActivity(), EasyPermissions.PermissionCallbacks {
         LocalBroadcastManager.getInstance(this).registerReceiver(mMessageReceiver, IntentFilter("incomingMessage"))
 
         resetBtn.setOnClickListener { resetBT() }
+    }
+
+    private fun tune(value: Int){
+        handlerThread = HandlerThread("background-thread")
+        handlerThread.start()
+        Handler(handlerThread.looper).post {
+            try {
+                if (counter < value) {
+                    //tuning timpani up if we want higher pitch
+                    tuneDirection = 1
+                } else if (counter > value) {
+                    //tuning timpani down if we want lower pitch
+                    tuneDirection = -1
+                    //we need to get lower than tuningInfo here
+                    while (counter >= value - 10) {
+                        //waiting for tuning down
+                    }
+                    //tuning up when its below a certain point
+                    tuneDirection = 1
+                }
+
+                while (!(counter < value + 1 && counter > value - 1)) {
+                    //this can also change the tuning speed if more accuracy needed, but it will affect the speed of tuning
+                    //waiting for tuning here
+                }
+                //this stops the tuning on the right note
+                tuneDirection = 0
+                Toast.makeText(this, "Done tuning to $value", Toast.LENGTH_SHORT).show()
+            } catch (ex: NullPointerException) {
+                Log.e("tuning", "tuning error + $ex")
+                Toast.makeText(this, "Błąd podczas przestrajania", Toast.LENGTH_LONG).show()
+            }
+            val sentMessage = "done"
+            mBluetoothConnection.write(sentMessage.toByteArray())
+            handlerThread.quitSafely()
+        }
     }
 
     private fun resetBT(){

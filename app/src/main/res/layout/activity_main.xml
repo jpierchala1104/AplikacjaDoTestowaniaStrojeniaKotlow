@@ -21,6 +21,7 @@
         android:progress="20"
         android:layout_height="60dp"
         style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+        android:scaleY="6"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintTop_toTopOf="parent"/>
